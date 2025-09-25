@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>💣 Сапёр — улучшенный</title>
+  <style>
+    :root{--bg1:#0f1724;--bg2:#081022;--card:rgba(255,255,255,0.04);--muted:#94a3b8;--accent:#f1f5f9}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial;background:linear-gradient(to bottom,var(--bg1),var(--bg2));color:var(--accent);display:flex;align-items:center;justify-content:center;min-height:100vh}
+    .container{width:95vw;max-width:880px;background:var(--card);border:1px solid rgba(255,255,255,0.06);padding:18px;border-radius:14px;box-shadow:0 10px 40px rgba(2,6,23,0.6)}
+    header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
+    h1{margin:0;font-size:1.05rem;letter-spacing:0.2px}
+    .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    select,input,button{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--accent);padding:6px 8px;border-radius:8px}
+    .custom{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .grid-wrapper{position:relative;display:inline-block}
+    .grid{display:grid;gap:6px;padding:8px;border-radius:10px;justify-content:center;background:transparent}
+    .cell{width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:8px;user-select:none;cursor:pointer;font-weight:700;transition:all .12s}
+    .cell.hidden{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))}
+    .cell.hidden:hover{transform:translateY(-2px)}
+    .cell.revealed{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.03);cursor:default}
+    .cell.flag{color:#fb7185}
+    .cell.mine{color:#ffb86b}
+    .meta{font-size:13px;color:var(--muted);display:flex;gap:12px;align-items:center}
+    .overlay{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;color:white;font-size:1.1rem;border-radius:10px;z-index:2}
+    #timerDisplay{font-size:14px;color:var(--accent);margin-left:8px}
+    footer{text-align:center;margin-top:12px;color:var(--muted);font-size:13px}
+    @media (max-width:520px){.cell{width:30px;height:30px}}
+  </style>
+</head>
+<body>
+  <div class="container" role="application">
+    <header>
+      <h1>💣 Сапёр — улучшенный</h1>
+      <div class="controls">
+        <div class="meta">Мины: <strong id="mine-count">—</strong></div>
+        <div class="meta">Статус: <span id="status">Готов</span></div>
+        <div class="meta" id="timerWrapper" style="display:none">⏱ Осталось: <span id="timerDisplay">0</span> сек</div>
+        <select id="difficulty" aria-label="Сложность">
+          <option value="easy">Лёгко (8×8)</option>
+          <option value="medium" selected>Средне (12×12)</option>
+          <option value="hard">Тяжело (16×16)</option>
+          <option value="custom">Своя настройка</option>
+        </select>
+        <button id="newBtn">🔄 Новая</button>
+      </div>
+    </header>
+
+    <div id="custom-settings" style="display:none;margin-bottom:10px" class="custom">
+      <label>Ряды: <input id="rows" type="number" min="5" max="30" value="10" /></label>
+      <label>Колонки: <input id="cols" type="number" min="5" max="30" value="10" /></label>
+      <label>Мины: <input id="mines" type="number" min="1" value="15" /></label>
+      <button id="applyCustom">Применить</button>
+      <div id="custom-note" style="color:var(--muted);font-size:13px"></div>
+    </div>
+
+    <div id="timer-settings" style="margin-bottom:10px" class="custom">
+      <label>Режим: 
+        <select id="timerMode">
+          <option value="notimer">Игра без таймера</option>
+          <option value="timer">Игра с таймером</option>
+        </select>
+      </label>
+      <div id="timerControls" style="display:none;gap:8px;align-items:center">
+        <label>Время (сек): <input id="timeLimit" type="number" min="10" value="60"></label>
+        <button id="startBtn">▶ Играть</button>
+      </div>
+    </div>
+
+    <main>
+      <div class="grid-wrapper">
+        <div id="grid" class="grid" role="grid" aria-label="Поле игры"></div>
+        <div id="overlay" class="overlay" style="display:none">Нажмите старт чтобы начать</div>
+      </div>
+    </main>
+
+    <footer>ЛКМ — открыть · ПКМ — флажок</footer>
+  </div>
+
+  <script>
+    const difficulties = { easy:{rows:8,cols:8,mines:10}, medium:{rows:12,cols:12,mines:20}, hard:{rows:16,cols:16,mines:40} };
+    let rows = 12, cols = 12, mines = 20;
+    let grid = [], alive = true, firstClick = true, revealedCount = 0;
+    let timerMode = 'notimer';
+    let started = false;
+    let timer = null, timeLeft = 0;
+
+    const gridEl = document.getElementById('grid');
+    const statusEl = document.getElementById('status');
+    const difficultyEl = document.getElementById('difficulty');
+    const newBtn = document.getElementById('newBtn');
+    const mineCountEl = document.getElementById('mine-count');
+    const customBlock = document.getElementById('custom-settings');
+    const rowsInput = document.getElementById('rows');
+    const colsInput = document.getElementById('cols');
+    const minesInput = document.getElementById('mines');
+    const applyCustomBtn = document.getElementById('applyCustom');
+    const customNote = document.getElementById('custom-note');
+    const timerModeEl = document.getElementById('timerMode');
+    const timerControls = document.getElementById('timerControls');
+    const startBtn = document.getElementById('startBtn');
+    const overlay = document.getElementById('overlay');
+    const timerDisplay = document.getElementById('timerDisplay');
+    const timerWrapper = document.getElementById('timerWrapper');
+
+    const clamp = (v,min,max) => Math.max(min, Math.min(max, Number(v)||0));
+    function updateMineCountUI(){ mineCountEl.textContent = mines; }
+    function updateCustomConstraints(){
+      const r = clamp(rowsInput.value, +rowsInput.min, +rowsInput.max);
+      const c = clamp(colsInput.value, +colsInput.min, +colsInput.max);
+      const maxM = Math.max(1, r*c - 1);
+      minesInput.max = maxM;
+      if(Number(minesInput.value) > maxM) minesInput.value = maxM;
+      customNote.textContent = `Макс мин: ${maxM}`;
+    }
+
+    function createEmptyGrid(){
+      return Array.from({length: rows}, () => Array.from({length: cols}, () => ({mine:false,revealed:false,flagged:false,adj:0})));
+    }
+
+    function plantMines(g, excludeR, excludeC){
+      const maxPossible = Math.max(0, rows*cols - 1);
+      if(mines > maxPossible) mines = maxPossible;
+      const allowed = [];
+      for(let r=0;r<rows;r++) for(let c=0;c<cols;c++) if(!(Math.abs(r-excludeR)<=1 && Math.abs(c-excludeC)<=1)) allowed.push([r,c]);
+      for(let i=allowed.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [allowed[i],allowed[j]]=[allowed[j],allowed[i]]; }
+      let toPlace = Math.min(mines, allowed.length);
+      for(let i=0;i<toPlace;i++){ const [r,c] = allowed[i]; g[r][c].mine = true; }
+      let placed = toPlace;
+      if(placed<mines){
+        for(let r=0;r<rows && placed<mines;r++) for(let c=0;c<cols && placed<mines;c++) if(!g[r][c].mine){ g[r][c].mine=true; placed++; }
+      }
+      for(let r=0;r<rows;r++) for(let c=0;c<cols;c++) if(!g[r][c].mine){ let n=0; for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){ const rr=r+dr,cc=c+dc; if(rr<0||cc<0||rr>=rows||cc>=cols) continue; if(g[rr][cc].mine) n++; } g[r][c].adj=n; } else g[r][c].adj=-1;
+    }
+
+    function reveal(r,c){
+      const stack=[[r,c]];
+      while(stack.length){
+        const [rr,cc]=stack.pop();
+        const cell=grid[rr][cc];
+        if(cell.revealed||cell.flagged) continue;
+        cell.revealed=true; revealedCount++;
+        if(cell.mine){ alive=false; statusEl.textContent='Статус: Проигрыш'; grid.forEach(row=>row.forEach(c=>c.revealed=true)); stopTimer(); return; }
+        if(cell.adj===0){ for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){ const nr=rr+dr,nc=cc+dc; if(nr<0||nc<0||nr>=rows||nc>=cols) continue; if(!grid[nr][nc].revealed) stack.push([nr,nc]); } }
+      }
+      if(revealedCount===rows*cols-mines){ alive=false; statusEl.textContent='Статус: Победа'; grid.forEach(row=>row.forEach(c=>{ if(c.mine) c.flagged=true })); stopTimer(); }
+    }
+
+    function handleClick(e,r,c){
+      e.preventDefault(); if(!alive) return;
+      if(timerMode==='timer' && !started) return;
+      if(e.type==='contextmenu'||e.button===2){ if(!grid[r][c].revealed) grid[r][c].flagged=!grid[r][c].flagged; render(); return; }
+      if(firstClick){ plantMines(grid,r,c); firstClick=false; }
+      reveal(r,c); render();
+    }
+
+    function render(){
+      mineCountEl.textContent=mines;
+      gridEl.style.gridTemplateColumns=`repeat(${cols},36px)`;
+      gridEl.innerHTML='';
+      for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+        const cell=grid[r][c];
+        const el=document.createElement('div');
+        el.className='cell '+(cell.revealed?'revealed':'hidden')+(cell.flagged&&!cell.revealed?' flag':'')+(cell.mine&&cell.revealed?' mine':'');
+        el.textContent=cell.revealed?(cell.mine?'💣':(cell.adj>0?cell.adj:'')):(cell.flagged?'⚑':'');
+        el.oncontextmenu=(ev)=>handleClick(ev,r,c);
+        el.onclick=(ev)=>handleClick(ev,r,c);
+        gridEl.appendChild(el);
+      }
+      overlay.style.display=(timerMode==='timer'&&!started)?'flex':'none';
+      timerWrapper.style.display=(timerMode==='timer')?'flex':'none';
+      timerDisplay.textContent=timeLeft;
+    }
+
+    function resetGame(){
+      const diff=difficultyEl.value;
+      if(diff==='custom'){
+        const r=clamp(rowsInput.value,+rowsInput.min,+rowsInput.max);
+        const c=clamp(colsInput.value,+colsInput.min,+colsInput.max);
+        const maxM=Math.max(1,r*c-1);
+        let m=clamp(minesInput.value,+minesInput.min,maxM);
+        rows=r; cols=c; mines=m;
+        rowsInput.value=rows; colsInput.value=cols; minesInput.value=mines; minesInput.max=maxM;
+      } else { ({rows,cols,mines}=difficulties[diff]); }
+      grid=createEmptyGrid(); alive=true; firstClick=true; revealedCount=0; statusEl.textContent='Готов'; started=false;
+      stopTimer();
+      if(timerMode==='timer'){ timeLeft = clamp(document.getElementById('timeLimit').value,10,9999); timerDisplay.textContent=timeLeft; }
+      updateMineCountUI(); render();
+    }
+
+    function startTimer(){
+      stopTimer();
+      timer = setInterval(()=>{
+        if(!alive) { stopTimer(); return; }
+        timeLeft--;
+        timerDisplay.textContent=timeLeft;
+        if(timeLeft<=0){
+          stopTimer();
+          alive=false;
+          statusEl.textContent='Статус: Время вышло';
+          grid.forEach(row=>row.forEach(c=>c.revealed=true));
+          render();
+        }
+      },1000);
+    }
+
+    function stopTimer(){
+      if(timer){ clearInterval(timer); timer=null; }
+    }
+
+    difficultyEl.addEventListener('change',()=>{ if(difficultyEl.value==='custom'){ customBlock.style.display='flex'; updateCustomConstraints(); } else customBlock.style.display='none'; resetGame(); });
+    rowsInput.addEventListener('input',()=>{ updateCustomConstraints(); });
+    colsInput.addEventListener('input',()=>{ updateCustomConstraints(); });
+    minesInput.addEventListener('input',()=>{ const maxM=Math.max(1,+rowsInput.value*+colsInput.value-1); if(Number(minesInput.value)>maxM) minesInput.value=maxM; });
+    applyCustomBtn.addEventListener('click',()=>{ resetGame(); });
+    newBtn.addEventListener('click',()=>{ resetGame(); });
+
+    timerModeEl.addEventListener('change',()=>{
+      timerMode=timerModeEl.value;
+      if(timerMode==='timer'){ timerControls.style.display='flex'; overlay.style.display='flex'; } else { timerControls.style.display='none'; overlay.style.display='none'; }
+      resetGame();
+    });
+
+    startBtn.addEventListener('click',()=>{ started=true; overlay.style.display='none'; resetGame(); startTimer(); });
+
+    updateCustomConstraints(); resetGame();
+  </script>
+</body>
+</html>
